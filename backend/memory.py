@@ -10,6 +10,17 @@ REMEMBER_PREFIXES = [
     "recuerda:", "recuerda ", "anota:", "anota ", "guarda:", "guarda ",
 ]
 
+# Normalize subject nouns across languages to a canonical English key
+SUBJECT_ALIASES = {
+    "hund": "dog", "perro": "dog", "dog": "dog", "chien": "dog",
+    "katze": "cat", "gato": "cat", "cat": "cat", "chat": "cat",
+    "auto": "car", "coche": "car", "car": "car", "voiture": "car",
+    "name": "name", "nombre": "name",
+}
+
+def _canon_subject(s):
+    return SUBJECT_ALIASES.get(s.lower(), s.lower())
+
 SUBJECT_PATTERNS = [
     # German: "mein X heißt/ist Y"
     r"mein (\w+) (?:hei(?:ß|ss)t|ist|name ist) (.+)",
@@ -47,6 +58,7 @@ def parse_fact(text):
         m = re.search(pat, body, re.IGNORECASE)
         if m:
             subj, obj = m.group(1), m.group(2).rstrip(".")
+            subj = _canon_subject(subj)
             return f"subject={subj};object={obj};text={body}"
     if had_prefix:
         return body
@@ -82,6 +94,7 @@ def correct(text):
                 m = re.search(pat, body, re.IGNORECASE)
                 if m:
                     subj, obj = m.group(1), m.group(2).rstrip(".")
+                    subj = _canon_subject(subj)
                     existing = db.fact_find_by_subject(subj)
                     if existing:
                         db.fact_update(existing[0]["id"], body, subject=subj, obj=obj)
@@ -100,7 +113,7 @@ def answer_question(text):
     for pat in QUESTION_PATTERNS:
         m = re.search(pat, low)
         if m:
-            subj = m.group(1)
+            subj = _canon_subject(m.group(1))
             facts = db.fact_find_by_subject(subj)
             if facts:
                 f = facts[0]
