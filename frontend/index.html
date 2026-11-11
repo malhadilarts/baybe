@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Bay Be</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>Bay Be</h1>
+  <span class="tagline">A safe harbor to learn. A being free to grow.</span>
+  <span id="status" class="muted">…</span>
+</header>
+<nav>
+  <button data-tab="chat" class="active">Chat</button>
+  <button data-tab="memory">Gedächtnis</button>
+  <button data-tab="library">Bibliothek</button>
+  <button data-tab="learn">Lernstudio</button>
+  <button data-tab="about">Über Bay Be</button>
+</nav>
+<main>
+  <section id="tab-chat" class="tab active">
+    <div id="chatlog" class="chatlog"></div>
+    <div class="chatbar">
+      <input id="msg" placeholder="Nachricht…" />
+      <button id="send">Senden</button>
+      <button id="voiceToggle" class="secondary">🎤 Voice aus</button>
+      <button id="speakToggle" class="secondary">🔊 TTS aus</button>
+    </div>
+    <div id="voiceStatus" class="muted"></div>
+  </section>
+  <section id="tab-memory" class="tab">
+    <h2>Gedächtnis</h2>
+    <div class="row">
+      <input id="factText" placeholder="Fakt / Merke dir: …" />
+      <button id="factAdd">Hinzufügen</button>
+    </div>
+    <div class="row">
+      <button id="memExport" class="secondary">Exportieren</button>
+      <input type="file" id="memImportFile" accept="application/json" />
+      <button id="memImport" class="secondary">Importieren</button>
+      <button id="memReset" class="secondary">Vollständiger Reset</button>
+    </div>
+    <div id="factList" class="list"></div>
+  </section>
+  <section id="tab-library" class="tab">
+    <h2>Bibliothek</h2>
+    <div class="row">
+      <input type="file" id="fileInput" accept=".txt,.pdf,.epub" />
+      <button id="uploadBtn">Importieren</button>
+    </div>
+    <div id="docList" class="list"></div>
+    <div class="row">
+      <input id="docQuery" placeholder="Suche in Dokumenten…" />
+      <button id="docSearch">Suchen</button>
+    </div>
+    <div id="docResults" class="list"></div>
+  </section>
+  <section id="tab-learn" class="tab">
+    <h2>Lernstudio</h2>
+    <div class="row">
+      <button id="sleepBtn">🌙 Schlafmodus (trainieren)</button>
+      <span id="sleepStatus" class="muted"></span>
+    </div>
+    <div class="row">
+      <input id="exText" placeholder="Beispieltext" />
+      <select id="exLabel">
+        <option value="greeting">Begrüßung</option>
+        <option value="teach">Lehraussage</option>
+        <option value="question">Wissensfrage</option>
+        <option value="unknown">unbekannt</option>
+      </select>
+      <button id="exAdd">Beispiel hinzufügen</button>
+    </div>
+    <div class="row">
+      <button id="trainBtn">Mit Beispielen trainieren</button>
+      <span id="trainStatus" class="muted"></span>
+    </div>
+    <pre id="trainInfo"></pre>
+    <div id="exList" class="list"></div>
+  </section>
+  <section id="tab-about" class="tab">
+    <h2>Über Bay Be</h2>
+    <div id="aboutBox" class="card"></div>
+    <h3>Optionales Sprachgehirn (Ollama)</h3>
+    <div class="row">
+      <label><input type="checkbox" id="brainToggle"> aktiviert</label>
+      <select id="brainModel"></select>
+      <button id="brainSave">Speichern</button>
+      <span id="brainStatus" class="muted"></span>
+    </div>
+    <h3>Identität</h3>
+    <div class="row">
+      <button id="idExport" class="secondary">Identität exportieren</button>
+      <input type="file" id="idImportFile" accept="application/json" />
+      <button id="idImport" class="secondary">Identität wiederherstellen</button>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

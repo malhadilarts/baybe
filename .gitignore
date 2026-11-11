@@ -1,0 +1,21 @@
+﻿# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data (never commit user data, keys, model weights)
+data/
+*.db
+*.pt
+*.json
+voice/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log

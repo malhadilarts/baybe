@@ -1,0 +1,30 @@
+:root { --bg:#0b1020; --panel:#141a2e; --accent:#4fd1c5; --text:#e8ecf4; --muted:#8a93a6; --border:#232a44; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+header { display:flex; align-items:center; gap:1rem; padding:1rem; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+header h1 { margin:0; }
+.tagline { color:var(--accent); font-style:italic; }
+.muted { color:var(--muted); font-size:.9rem; }
+nav { display:flex; gap:.4rem; padding:1rem; flex-wrap:wrap; }
+nav button { background:var(--panel); color:var(--text); border:1px solid var(--border); padding:.4rem .8rem; border-radius:6px; cursor:pointer; }
+nav button.active { background:var(--accent); color:#0b1020; border-color:var(--accent); }
+main { padding:1rem; max-width:900px; margin:0 auto; }
+.tab { display:none; }
+.tab.active { display:block; }
+.row { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin:.6rem 0; }
+input, textarea, select { background:var(--panel); color:var(--text); border:1px solid var(--border); padding:.5rem; border-radius:6px; flex:1; }
+button { background:var(--accent); color:#0b1020; border:none; padding:.5rem 1rem; border-radius:6px; cursor:pointer; font-weight:600; }
+button.secondary { background:var(--panel); color:var(--text); border:1px solid var(--border); }
+.list { margin-top:.6rem; }
+.card { background:var(--panel); border:1px solid var(--border); padding:.7rem; border-radius:8px; margin:.4rem 0; }
+.card .meta { color:var(--muted); font-size:.8rem; }
+.chatlog { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:1rem; min-height:300px; max-height:60vh; overflow:auto; }
+.msg { margin:.5rem 0; }
+.msg.user { color:#9fd; }
+.msg.assistant { color:var(--text); }
+.msg .role { font-weight:600; font-size:.8rem; color:var(--muted); }
+.chatbar { display:flex; gap:.5rem; margin-top:.6rem; }
+.chatbar input { flex:1; }
+pre { background:var(--panel); padding:.6rem; border-radius:6px; overflow:auto; max-height:300px; font-size:.85rem; }
+.hidden { display:none; }
+.badge { display:inline-block; padding:.15rem .5rem; border-radius:4px; font-size:.75rem; background:#2a2f40; }
