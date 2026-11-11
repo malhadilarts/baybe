@@ -302,54 +302,72 @@ def mem_reset():
 @app.post("/api/sleep")
 def sleep_mode(epochs: int = 20, replay: int = 2):
     import shutil, os
-    from config import MODEL_PATH
-    # backup previous weights
-    backup_path = None
+    from config import MODEL_PATH, VOCAB_PATH
+    # backup previous weights + vocab (must stay in sync)
+    backup_pt = None
+    backup_vocab = None
     if os.path.exists(MODEL_PATH):
-        backup_path = str(MODEL_PATH) + ".bak"
-        shutil.copy2(MODEL_PATH, backup_path)
+        backup_pt = str(MODEL_PATH) + ".bak"
+        shutil.copy2(MODEL_PATH, backup_pt)
+    if os.path.exists(VOCAB_PATH):
+        backup_vocab = str(VOCAB_PATH) + ".bak"
+        shutil.copy2(VOCAB_PATH, backup_vocab)
     base = db.examples_all()
-    # build augmented set with replay
-    replayed = list(base)
+    # split: last ~20% as held-out test set
+    n_test = max(1, len(base) // 5) if len(base) >= 5 else 0
+    test_set = base[-n_test:] if n_test else []
+    train_set = base[:-n_test] if n_test else list(base)
+    if not train_set:
+        train_set = list(base)
+        test_set = []
+    # targeted replay: older examples (first half) repeated more
+    older = train_set[:len(train_set)//2]
+    newer = train_set[len(train_set)//2:]
+    replayed = list(train_set)
     for _ in range(max(0, replay - 1)):
-        replayed += base
-    # before metrics: evaluate current model on base set
+        replayed += older  # older experiences repeated
+    # before metrics on held-out test set (or train if no test)
+    eval_set = test_set if test_set else train_set
     def _eval(examples):
         if not examples:
             return 0.0
         import torch
         xs = torch.stack([NET._vectorize(t) for t, _ in examples])
-        ys = torch.tensor([nn.INTENTS.index(l) for _, l in examples], dtype=torch.long, device=nn.DEVICE) if False else None
-        # use INTENTS from nn module
         import nn as _nn
         ys = torch.tensor([_nn.INTENTS.index(l) for _, l in examples], dtype=torch.long, device=_nn.DEVICE)
         with torch.no_grad():
             preds = torch.argmax(NET.model(xs), dim=1)
             return float((preds == ys).float().mean().item())
-    before_acc = _eval(base)
+    before_acc = _eval(eval_set)
     res = NET.train(examples=replayed, epochs=epochs)
-    after_acc = res.get("accuracy", 0.0)
+    after_acc = _eval(eval_set)
     rolled_back = False
-    if after_acc < before_acc and backup_path:
-        # restore
-        shutil.copy2(backup_path, MODEL_PATH)
+    if test_set and after_acc < before_acc and backup_pt:
+        shutil.copy2(backup_pt, MODEL_PATH)
+        if backup_vocab:
+            shutil.copy2(backup_vocab, VOCAB_PATH)
+        NET._load_vocab()
         NET._build_model()
         try:
+            import torch
             NET.model.load_state_dict(torch.load(MODEL_PATH, map_location=nn.DEVICE))
         except Exception:
             pass
         rolled_back = True
-    insight = ("Sleep training: examples=%d (replay x%d), epochs=%d, "
-               "accuracy %.3f -> %.3f, loss=%.4f. %s" % (
-               len(replayed), replay, epochs, before_acc, after_acc,
-               res.get("final_loss", 0), "ROLLED BACK" if rolled_back else "kept"))
+    insight = ("Sleep training: train=%d (replay older x%d), test=%d held-out, epochs=%d, "
+               "test_acc %.3f -> %.3f, train_acc=%.3f, loss=%.4f. %s" % (
+               len(replayed), replay, len(test_set), epochs, before_acc, after_acc,
+               res.get("accuracy", 0), res.get("final_loss", 0),
+               "ROLLED BACK" if rolled_back else "kept"))
     db.fact_add(insight, source="sleep")
     return {
         "ok": True,
-        "backup": backup_path,
+        "backup": backup_pt,
         "rolled_back": rolled_back,
         "before_accuracy": before_acc,
         "after_accuracy": after_acc,
+        "train_accuracy": res.get("accuracy", 0),
+        "test_set_size": len(test_set),
         "result": res,
         "insight": insight,
     }

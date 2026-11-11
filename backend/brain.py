@@ -33,6 +33,17 @@ def list_models():
     except Exception:
         return []
 
+_llama_cache = {"path": None, "llm": None}
+
+def _get_llama(path):
+    global _llama_cache
+    if _llama_cache["path"] == path and _llama_cache["llm"] is not None:
+        return _llama_cache["llm"]
+    from llama_cpp import Llama
+    llm = Llama(model_path=path, n_ctx=2048, verbose=False)
+    _llama_cache = {"path": path, "llm": llm}
+    return llm
+
 def ask(prompt, model=None):
     if backend() == "llamacpp":
         if not _llamacpp_available():
@@ -40,8 +51,7 @@ def ask(prompt, model=None):
         path = db.get_setting("llama_model_path", "")
         if not path:
             raise RuntimeError("no llama model path set")
-        from llama_cpp import Llama
-        llm = Llama(model_path=path, n_ctx=2048, verbose=False)
+        llm = _get_llama(path)
         out = llm.create_chat_completion(messages=[{"role": "user", "content": prompt}])
         return out["choices"][0]["message"]["content"], path
     model = model or db.get_setting("brain_model", "")
