@@ -1,20 +1,54 @@
 import db
 import re
 
+REMEMBER_PREFIXES = [
+    # German
+    "merke dir:", "merk dir:", "merke:", "notiere:", "speichere:",
+    # English
+    "remember:", "remember ", "note:", "note ", "save:", "save ", "store:", "store ",
+    # Spanish
+    "recuerda:", "recuerda ", "anota:", "anota ", "guarda:", "guarda ",
+]
+
+SUBJECT_PATTERNS = [
+    # German: "mein X heißt/ist Y"
+    r"mein (\w+) (?:hei(?:ß|ss)t|ist|name ist) (.+)",
+    # English: "my X is Y", "my X is called Y", "my X name is Y"
+    r"my (\w+) (?:is called|is named|name is|is) (.+)",
+    # Spanish: "mi X se llama Y", "mi X es Y"
+    r"mi (\w+) (?:se llama|es) (.+)",
+]
+
+QUESTION_PATTERNS = [
+    # German
+    r"wie hei(?:ß|ss)t mein (\w+)",
+    r"was ist mein (\w+)",
+    # English
+    r"what(?:'s| is) my (\w+)",
+    r"what is the name of my (\w+)",
+    r"how (?:is|does) my (\w+)",
+    # Spanish
+    r"c[oó]mo se llama mi (\w+)",
+    r"cu[aá]l es mi (\w+)",
+    r"qu[eé] es mi (\w+)",
+]
+
+def _strip_prefix(text):
+    low = text.lower().strip()
+    for prefix in REMEMBER_PREFIXES:
+        if low.startswith(prefix):
+            return text[len(prefix):].strip(), True
+    return text, False
+
 def parse_fact(text):
     t = text.strip()
-    low = t.lower()
-    body = t
-    for prefix in ["merke dir:", "merk dir:", "merke:", "notiere:", "speichere:"]:
-        if low.startswith(prefix):
-            body = t[len(prefix):].strip()
-            low = body.lower()
-            break
-    m = re.search(r"mein (\w+) (?:hei(?:ß|ss)t|ist|name ist) (.+)", body, re.IGNORECASE)
-    if m:
-        subj, obj = m.group(1), m.group(2).rstrip(".")
-        return f"subject={subj};object={obj};text={body}"
-    if body != t:
+    body, had_prefix = _strip_prefix(t)
+    for pat in SUBJECT_PATTERNS:
+        m = re.search(pat, body, re.IGNORECASE)
+        if m:
+            subj, obj = m.group(1), m.group(2).rstrip(".")
+            return f"subject={subj};object={obj};text={body}"
+    if had_prefix:
         return body
     return None
 
@@ -26,51 +60,51 @@ def remember(text):
         obj = parts.get("object")
         existing = db.fact_find_by_subject(subj)
         if existing:
-            db.fact_update(existing[0]["id"], text, subject=subj, object=obj)
+            db.fact_update(existing[0]["id"], text if False else parsed.split("text=",1)[-1], subject=subj, obj=obj)
             return "updated", existing[0]["id"]
-        fid = db.fact_add(text, subject=subj, predicate="heißt", obj=obj, source="user")
+        fid = db.fact_add(parsed.split("text=",1)[-1], subject=subj, predicate="is", obj=obj, source="user")
         return "added", fid
     if parsed:
         fid = db.fact_add(parsed, source="user")
         return "added", fid
-    # fallback: store raw as fact
     fid = db.fact_add(text, source="user")
     return "added", fid
 
 def correct(text):
-    # "Korrektur: Mein Hund heißt Lupo." or "Korrektur: <fact>"
     t = text.strip()
     low = t.lower()
-    prefix = "korrektur:"
-    if not low.startswith(prefix):
-        return None
-    body = t[len(prefix):].strip()
-    # try to extract subject
-    m = re.search(r"mein (\w+) (?:hei(?:ß|ss)t|ist|name ist) (.+)", body, re.IGNORECASE)
-    if m:
-        subj, obj = m.group(1), m.group(2).rstrip(".")
-        existing = db.fact_find_by_subject(subj)
-        if existing:
-            db.fact_update(existing[0]["id"], body, subject=subj, obj=obj)
+    # multilingual correction prefixes
+    for prefix in ["korrektur:", "correction:", "correccion:", "corrección:"]:
+        if low.startswith(prefix):
+            body = t[len(prefix):].strip()
+            # try subject pattern
+            for pat in SUBJECT_PATTERNS:
+                m = re.search(pat, body, re.IGNORECASE)
+                if m:
+                    subj, obj = m.group(1), m.group(2).rstrip(".")
+                    existing = db.fact_find_by_subject(subj)
+                    if existing:
+                        db.fact_update(existing[0]["id"], body, subject=subj, obj=obj)
+                        db.correction_add(text, body)
+                        return "Thanks, updated: your " + subj + " is now " + obj + "."
+                    fid = db.fact_add(body, subject=subj, predicate="is", obj=obj, source="user")
+                    db.correction_add(text, body)
+                    return "Stored: your " + subj + " is " + obj + "."
+            db.fact_add(body, source="correction")
             db.correction_add(text, body)
-            return f"Danke, ich habe es geändert: Dein {subj} heißt jetzt {obj}."
-        fid = db.fact_add(body, subject=subj, predicate="heißt", obj=obj, source="user")
-        db.correction_add(text, body)
-        return f"Ich habe neu gespeichert: Dein {subj} heißt {obj}."
-    # generic correction: store as fact
-    db.fact_add(body, source="correction")
-    db.correction_add(text, body)
-    return "Danke, ich habe es geändert."
+            return "Thanks, updated."
+    return None
 
 def answer_question(text):
     low = text.lower()
-    m = re.search(r"wie hei(?:ß|ss)t mein (\w+)", low)
-    if m:
-        subj = m.group(1)
-        facts = db.fact_find_by_subject(subj)
-        if facts:
-            f = facts[0]
-            return f"Dein {subj} heißt {f['object']}.", f
+    for pat in QUESTION_PATTERNS:
+        m = re.search(pat, low)
+        if m:
+            subj = m.group(1)
+            facts = db.fact_find_by_subject(subj)
+            if facts:
+                f = facts[0]
+                return "Your " + subj + " is " + (f["object"] or f["text"]) + ".", f
     hits = db.facts_search(text)
     if hits:
         return None, hits[0]

@@ -15,6 +15,7 @@ INTENT_LABELS_DE = {
 
 # seed examples
 SEED_EXAMPLES = [
+    # German
     ("hallo", "greeting"),
     ("hi", "greeting"),
     ("guten tag", "greeting"),
@@ -32,7 +33,38 @@ SEED_EXAMPLES = [
     ("wo ist", "question"),
     ("erkläre", "question"),
     ("was weißt du", "question"),
+    # English
+    ("hello", "greeting"),
+    ("hi there", "greeting"),
+    ("good morning", "greeting"),
+    ("hey", "greeting"),
+    ("remember", "teach"),
+    ("note this", "teach"),
+    ("save this", "teach"),
+    ("my dog is", "teach"),
+    ("what is", "question"),
+    ("who is", "question"),
+    ("when", "question"),
+    ("where is", "question"),
+    ("explain", "question"),
+    ("what do you know", "question"),
+    # Spanish
+    ("hola", "greeting"),
+    ("buenos dias", "greeting"),
+    ("buenas", "greeting"),
+    ("recuerda", "teach"),
+    ("anota", "teach"),
+    ("guarda", "teach"),
+    ("mi perro es", "teach"),
+    ("que es", "question"),
+    ("quien es", "question"),
+    ("cuando", "question"),
+    ("donde esta", "question"),
+    ("explica", "question"),
+    ("que sabes", "question"),
     ("xyzabc nonsense", "unknown"),
+    ("asdfghjkl", "unknown"),
+    ("blubber quark", "unknown"),
 ]
 
 def _tokenize(text):
@@ -161,6 +193,18 @@ class NNC:
             acc = float((preds == ys).float().mean().item())
         return {"ok": True, "epochs": epochs, "final_loss": losses[-1], "accuracy": acc,
                 "examples": len(examples), "vocab_size": len(self.vocab)}
+
+    def info(self):
+        import db, os
+        trained = db.get_setting("trained_at", "")
+        return {
+            "intents": INTENTS,
+            "intent_labels": INTENT_LABELS_DE,
+            "vocab_size": len(self.vocab),
+            "examples": len(db.examples_all()),
+            "trained_at": trained,
+            "model_exists": os.path.exists(MODEL_PATH),
+        }
 
     # Held-out paraphrases (never trained on) for generalization testing
     UNSEEN = {

@@ -13,6 +13,8 @@ import nn
 import memory
 import docs
 import guardian
+import brain
+import voice
 
 app = FastAPI(title=config.APP_NAME, version=config.VERSION)
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
@@ -57,24 +59,30 @@ def chat(req: ChatReq):
         return StreamingResponse(g(), media_type="text/event-stream")
 
     low = msg.lower()
-    core = "baybe"
-    if low.startswith("korrektur:"):
-        reply = memory.correct(msg)
+    corr_prefixes = ["korrektur:", "correction:", "correccion:", "corrección:"]
+    if any(low.startswith(p) for p in corr_prefixes):
+        r = memory.correct(msg)
+        reply = r if r else "Danke, ich habe es geaendert."
         intent = "teach"
         conf = 1.0
     else:
-        if any(low.startswith(p) for p in ["merke", "merk", "notiere", "speichere"]):
+        teach_prefixes = ["merke", "merk", "notiere", "speichere", "remember", "note", "save", "store", "recuerda", "anota", "guarda"]
+        question_words = ["wie ", "was ", "wer ", "wann ", "wo ", "warum ", "erklare", "weiss", "heisst", "heißt",
+                          "what ", "who ", "when ", "where ", "why ", "how ", "explain", "what's",
+                          "que ", "quien ", "cuando ", "donde ", "por que ", "explica", "como ", "cómo "]
+        greeting_words = ["hallo", "hi", "moin", "hey", "guten", "hello", "good morning", "hola", "buenos", "buenas"]
+        if any(low.startswith(p) for p in teach_prefixes):
             intent = "teach"
             conf = 0.9
-        elif any(w in low for w in ["wie ", "was ", "wer ", "wann ", "wo ", "warum ", "erklare", "weiss", "heisst", "heißt"]):
+        elif any(w in low for w in question_words):
             intent = "question"
             conf = 0.8
-        elif any(w in low for w in ["hallo", "hi", "moin", "hey", "guten"]):
+        elif any(w in low for w in greeting_words):
             intent = "greeting"
             conf = 0.9
         else:
             intent, conf = NET.predict(msg)
-            toks = [w for w in re.sub(r"[^a-zäöüß0-9 ]", " ", low).split() if w]
+            toks = [w for w in re.sub(r"[^a-zäöüßáéíóúñ0-9 ]", " ", low).split() if w]
             known = [w for w in toks if w in NET.vocab]
             if not known or conf < 0.45:
                 intent = "unknown"
@@ -102,11 +110,12 @@ def chat(req: ChatReq):
         else:
             reply = "Das weiss ich noch nicht. Du kannst es mir beibringen (\"Merke dir: ...\")."
 
-    # optional brain (Ollama / llama.cpp)
-    if (not low.startswith("korrektur:") and intent in ("question", "unknown")
-            and __import__("brain").enabled() and __import__("brain").is_available()):
+    # optional brain
+    core = "baybe"
+    if (not any(low.startswith(p) for p in corr_prefixes) and intent in ("question", "unknown")
+            and brain.enabled() and brain.is_available()):
         try:
-            ans, model = __import__("brain").ask(msg)
+            ans, model = brain.ask(msg)
             safe, reason = guardian.check(ans)
             if safe:
                 reply = ans
@@ -143,6 +152,38 @@ def mem_del(fid: int):
     db.fact_delete(fid)
     return {"ok": True}
 
+@app.get("/api/memory/export")
+def mem_export():
+    facts = memory.list_facts()
+    return {"facts": facts, "exported_at": time.time()}
+
+@app.post("/api/memory/import")
+def mem_import(payload: dict):
+    n = 0
+    for f in payload.get("facts", []):
+        db.fact_add(f.get("text", ""), subject=f.get("subject"), predicate=f.get("predicate"),
+                    obj=f.get("object"), source="import")
+        n += 1
+    return {"imported": n}
+
+@app.post("/api/memory/reset")
+def mem_reset():
+    c = db.conn()
+    c.execute("DELETE FROM facts")
+    c.execute("DELETE FROM corrections")
+    c.execute("DELETE FROM documents")
+    c.execute("DELETE FROM doc_chunks")
+    c.commit()
+    c.close()
+    import os
+    from config import MODEL_PATH, VOCAB_PATH
+    for p in (MODEL_PATH, VOCAB_PATH):
+        if os.path.exists(p):
+            os.remove(p)
+    NET._rebuild_vocab()
+    NET._build_model()
+    return {"ok": True}
+
 @app.get("/api/docs")
 def docs_list():
     return {"documents": db.docs_all()}
@@ -171,8 +212,6 @@ def ex_add(req: ExampleReq):
     if req.label not in nn.INTENTS:
         raise HTTPException(400, "unknown label")
     db.example_add(req.text, req.label)
-    # Do not rebuild the model here: that would discard learned weights.
-    # Vocab/model are rebuilt together during training.
     return {"ok": True}
 
 @app.post("/api/training/run")
@@ -191,7 +230,6 @@ def eval_unseen():
 @app.post("/api/learn_test")
 def learn_test(epochs: int = 20):
     before = NET.eval_unseen()
-    # backup
     import shutil, os
     from config import MODEL_PATH, VOCAB_PATH
     backup_pt = str(MODEL_PATH) + ".evalbak"
@@ -202,7 +240,6 @@ def learn_test(epochs: int = 20):
         shutil.copy2(VOCAB_PATH, backup_vocab)
     res = NET.train(epochs=epochs)
     after = NET.eval_unseen()
-    # rollback if generalization got worse
     rolled_back = False
     if after["overall"] < before["overall"] and os.path.exists(backup_pt):
         shutil.copy2(backup_pt, MODEL_PATH)
@@ -212,7 +249,7 @@ def learn_test(epochs: int = 20):
         NET._build_model()
         try:
             import torch
-            NET.model.load_state_dict(torch.load(MODEL_PATH, map_location=__import__("nn").DEVICE))
+            NET.model.load_state_dict(torch.load(MODEL_PATH, map_location=nn.DEVICE))
         except Exception:
             pass
         rolled_back = True
@@ -228,126 +265,10 @@ def learn_test(epochs: int = 20):
         "insight": insight,
     }
 
-@app.get("/api/guardian/check")
-def gcheck(text: str):
-    ok, reason = guardian.check(text)
-    return {"safe": ok, "reason": reason}
-
-# ---------- voice ----------
-@app.post("/api/voice/stt")
-async def voice_stt(file: UploadFile = File(...)):
-    import voice
-    data = await file.read()
-    text = voice.transcribe(data, suffix=".wav")
-    return {"text": text}
-
-@app.post("/api/voice/tts")
-def voice_tts(payload: dict):
-    import voice
-    text = payload.get("text", "")
-    data = voice.synthesize(text)
-    from fastapi.responses import Response
-    return Response(content=data, media_type="audio/wav")
-
-# ---------- brain ----------
-@app.get("/api/brain/status")
-def brain_status():
-    import brain
-    return {"enabled": brain.enabled(), "available": brain.is_available(),
-            "models": brain.list_models(), "model": __import__("db").get_setting("brain_model", ""),
-            "backend": brain.backend(), "llamacpp_available": brain._llamacpp_available(),
-            "llama_path": __import__("db").get_setting("llama_model_path", "")}
-
-@app.post("/api/brain/backend")
-def brain_backend(backend: str):
-    import brain
-    brain.set_backend(backend)
-    return {"backend": brain.backend()}
-
-@app.post("/api/brain/llama_path")
-def brain_llama_path(path: str):
-    import brain
-    brain.set_llama_path(path)
-    return {"path": path}
-
-@app.post("/api/brain/toggle")
-def brain_toggle(enabled: bool):
-    import brain
-    brain.set_enabled(enabled)
-    return {"enabled": brain.enabled()}
-
-@app.post("/api/brain/model")
-def brain_model(model: str):
-    import brain
-    brain.set_model(model)
-    return {"model": model}
-
-@app.post("/api/brain/ask")
-def brain_ask(payload: dict):
-    import brain
-    ans, model = brain.ask(payload.get("prompt", ""))
-    return {"answer": ans, "model": model}
-
-# ---------- identity export/restore ----------
-@app.get("/api/identity/export")
-def id_export():
-    import identity
-    path = identity.export_identity()
-    if not path:
-        raise HTTPException(404, "no identity")
-    return FileResponse(path, filename=Path(path).name)
-
-@app.post("/api/identity/restore")
-async def id_restore(file: UploadFile = File(...)):
-    import identity, json
-    data = await file.read()
-    d = json.loads(data.decode("utf-8"))
-    info = identity.restore_identity(d)
-    return info
-
-# ---------- memory export/import/reset ----------
-@app.get("/api/memory/export")
-def mem_export():
-    facts = memory.list_facts()
-    return {"facts": facts, "exported_at": time.time()}
-
-@app.post("/api/memory/import")
-def mem_import(payload: dict):
-    n = 0
-    for f in payload.get("facts", []):
-        db.fact_add(f.get("text", ""), subject=f.get("subject"), predicate=f.get("predicate"),
-                    obj=f.get("object"), source="import")
-        n += 1
-    return {"imported": n}
-
-@app.post("/api/memory/reset")
-def mem_reset():
-    c = db.conn()
-    c.execute("DELETE FROM facts")
-    c.execute("DELETE FROM corrections")
-    c.execute("DELETE FROM documents")
-    c.execute("DELETE FROM doc_chunks")
-    c.commit()
-    c.close()
-    # reset model weights
-    try:
-        import os
-        from config import MODEL_PATH, VOCAB_PATH
-        for p in (MODEL_PATH, VOCAB_PATH):
-            if os.path.exists(p):
-                os.remove(p)
-    except Exception:
-        pass
-    NET._rebuild_vocab()
-    NET._build_model()
-    return {"ok": True}
-
-# ---------- sleep mode ----------
 @app.post("/api/sleep")
 def sleep_mode(epochs: int = 20, replay: int = 2):
     import shutil, os
     from config import MODEL_PATH, VOCAB_PATH
-    # backup previous weights + vocab (must stay in sync)
     backup_pt = None
     backup_vocab = None
     if os.path.exists(MODEL_PATH):
@@ -357,20 +278,17 @@ def sleep_mode(epochs: int = 20, replay: int = 2):
         backup_vocab = str(VOCAB_PATH) + ".bak"
         shutil.copy2(VOCAB_PATH, backup_vocab)
     base = db.examples_all()
-    # split: last ~20% as held-out test set
     n_test = max(1, len(base) // 5) if len(base) >= 5 else 0
     test_set = base[-n_test:] if n_test else []
     train_set = base[:-n_test] if n_test else list(base)
     if not train_set:
         train_set = list(base)
         test_set = []
-    # targeted replay: older examples (first half) repeated more
     older = train_set[:len(train_set)//2]
     newer = train_set[len(train_set)//2:]
     replayed = list(train_set)
     for _ in range(max(0, replay - 1)):
-        replayed += older  # older experiences repeated
-    # before metrics on held-out test set (or train if no test)
+        replayed += older
     eval_set = test_set if test_set else train_set
     def _eval(examples):
         if not examples:
@@ -416,6 +334,90 @@ def sleep_mode(epochs: int = 20, replay: int = 2):
         "insight": insight,
     }
 
+# ---------- voice ----------
+@app.post("/api/voice/stt")
+async def voice_stt(file: UploadFile = File(...)):
+    data = await file.read()
+    text = voice.transcribe(data, suffix=".wav")
+    return {"text": text}
+
+@app.post("/api/voice/tts")
+def voice_tts(payload: dict):
+    text = payload.get("text", "")
+    data = voice.synthesize(text)
+    from fastapi.responses import Response
+    return Response(content=data, media_type="audio/wav")
+
+# ---------- brain ----------
+@app.get("/api/brain/status")
+def brain_status():
+    return {"enabled": brain.enabled(), "available": brain.is_available(),
+            "models": brain.list_models(), "model": db.get_setting("brain_model", ""),
+            "backend": brain.backend(), "llamacpp_available": brain._llamacpp_available(),
+            "llama_path": db.get_setting("llama_model_path", "")}
+
+@app.post("/api/brain/toggle")
+def brain_toggle(enabled: bool):
+    brain.set_enabled(enabled)
+    return {"enabled": brain.enabled()}
+
+@app.post("/api/brain/model")
+def brain_model(model: str):
+    brain.set_model(model)
+    return {"model": model}
+
+@app.post("/api/brain/backend")
+def brain_backend(backend: str):
+    brain.set_backend(backend)
+    return {"backend": brain.backend()}
+
+@app.post("/api/brain/llama_path")
+def brain_llama_path(path: str):
+    brain.set_llama_path(path)
+    return {"path": path}
+
+@app.post("/api/brain/ask")
+def brain_ask(payload: dict):
+    ans, model = brain.ask(payload.get("prompt", ""))
+    return {"answer": ans, "model": model}
+
+# ---------- identity ----------
+@app.get("/api/identity")
+def id_get():
+    return {"identity": identity.get()}
+
+@app.post("/api/identity")
+def id_create(req: dict):
+    name = req.get("name", "Bay Be")
+    return identity.create(name)
+
+@app.post("/api/identity/register")
+def id_reg(code: str):
+    identity.register(code)
+    return {"ok": True}
+
+@app.get("/api/identity/export")
+def id_export():
+    path = identity.export_identity()
+    if not path:
+        raise HTTPException(404, "no identity")
+    return FileResponse(path, filename=__import__("pathlib").Path(path).name)
+
+@app.post("/api/identity/restore")
+async def id_restore(file: UploadFile = File(...)):
+    data = await file.read()
+    d = json.loads(data.decode("utf-8"))
+    info = identity.restore_identity(d)
+    return info
+
+# ---------- guardian ----------
+@app.get("/api/guardian/check")
+def gcheck(text: str):
+    ok, reason = guardian.check(text)
+    return {"safe": ok, "reason": reason}
+
 @app.get("/")
 def index():
     return FileResponse(str(FRONTEND / "index.html"))
+
+scheduler = None
