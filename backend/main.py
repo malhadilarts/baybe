@@ -210,7 +210,21 @@ def voice_tts(payload: dict):
 def brain_status():
     import brain
     return {"enabled": brain.enabled(), "available": brain.is_available(),
-            "models": brain.list_models(), "model": __import__("db").get_setting("brain_model", "")}
+            "models": brain.list_models(), "model": __import__("db").get_setting("brain_model", ""),
+            "backend": brain.backend(), "llamacpp_available": brain._llamacpp_available(),
+            "llama_path": __import__("db").get_setting("llama_model_path", "")}
+
+@app.post("/api/brain/backend")
+def brain_backend(backend: str):
+    import brain
+    brain.set_backend(backend)
+    return {"backend": brain.backend()}
+
+@app.post("/api/brain/llama_path")
+def brain_llama_path(path: str):
+    import brain
+    brain.set_llama_path(path)
+    return {"path": path}
 
 @app.post("/api/brain/toggle")
 def brain_toggle(enabled: bool):
@@ -294,26 +308,48 @@ def sleep_mode(epochs: int = 20, replay: int = 2):
     if os.path.exists(MODEL_PATH):
         backup_path = str(MODEL_PATH) + ".bak"
         shutil.copy2(MODEL_PATH, backup_path)
-    # gather examples: current + replay older (repeat)
     base = db.examples_all()
+    # build augmented set with replay
     replayed = list(base)
     for _ in range(max(0, replay - 1)):
         replayed += base
-    # temporarily replace examples? Instead train on augmented set by adding to db temporarily is invasive.
-    # Simpler: train on existing examples (NET.train uses db.examples_all()). Report replay count.
-    before = NET.info()
-    res = NET.train(epochs=epochs)
-    after = NET.info()
-    # document what was learned
-    insight = ("Sleep training: examples=%d, epochs=%d, accuracy=%.3f, loss=%.4f. "
-               "Replay multiplier=%d." % (res.get("examples", 0), epochs,
-               res.get("accuracy", 0), res.get("final_loss", 0), replay))
+    # before metrics: evaluate current model on base set
+    def _eval(examples):
+        if not examples:
+            return 0.0
+        import torch
+        xs = torch.stack([NET._vectorize(t) for t, _ in examples])
+        ys = torch.tensor([nn.INTENTS.index(l) for _, l in examples], dtype=torch.long, device=nn.DEVICE) if False else None
+        # use INTENTS from nn module
+        import nn as _nn
+        ys = torch.tensor([_nn.INTENTS.index(l) for _, l in examples], dtype=torch.long, device=_nn.DEVICE)
+        with torch.no_grad():
+            preds = torch.argmax(NET.model(xs), dim=1)
+            return float((preds == ys).float().mean().item())
+    before_acc = _eval(base)
+    res = NET.train(examples=replayed, epochs=epochs)
+    after_acc = res.get("accuracy", 0.0)
+    rolled_back = False
+    if after_acc < before_acc and backup_path:
+        # restore
+        shutil.copy2(backup_path, MODEL_PATH)
+        NET._build_model()
+        try:
+            NET.model.load_state_dict(torch.load(MODEL_PATH, map_location=nn.DEVICE))
+        except Exception:
+            pass
+        rolled_back = True
+    insight = ("Sleep training: examples=%d (replay x%d), epochs=%d, "
+               "accuracy %.3f -> %.3f, loss=%.4f. %s" % (
+               len(replayed), replay, epochs, before_acc, after_acc,
+               res.get("final_loss", 0), "ROLLED BACK" if rolled_back else "kept"))
     db.fact_add(insight, source="sleep")
     return {
         "ok": True,
         "backup": backup_path,
-        "before": before,
-        "after": after,
+        "rolled_back": rolled_back,
+        "before_accuracy": before_acc,
+        "after_accuracy": after_acc,
         "result": res,
         "insight": insight,
     }

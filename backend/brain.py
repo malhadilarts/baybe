@@ -3,7 +3,19 @@ import urllib.request
 import db
 from config import OLLAMA_URL
 
+def backend():
+    return db.get_setting("brain_backend", "ollama")
+
+def _llamacpp_available():
+    try:
+        import llama_cpp  # noqa
+        return True
+    except Exception:
+        return False
+
 def is_available():
+    if backend() == "llamacpp":
+        return _llamacpp_available() and bool(db.get_setting("llama_model_path", ""))
     try:
         with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=3) as r:
             return True
@@ -11,6 +23,9 @@ def is_available():
         return False
 
 def list_models():
+    if backend() == "llamacpp":
+        p = db.get_setting("llama_model_path", "")
+        return [p] if p else []
     try:
         with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=5) as r:
             j = json.loads(r.read())
@@ -19,6 +34,16 @@ def list_models():
         return []
 
 def ask(prompt, model=None):
+    if backend() == "llamacpp":
+        if not _llamacpp_available():
+            raise RuntimeError("llama-cpp-python not installed")
+        path = db.get_setting("llama_model_path", "")
+        if not path:
+            raise RuntimeError("no llama model path set")
+        from llama_cpp import Llama
+        llm = Llama(model_path=path, n_ctx=2048, verbose=False)
+        out = llm.create_chat_completion(messages=[{"role": "user", "content": prompt}])
+        return out["choices"][0]["message"]["content"], path
     model = model or db.get_setting("brain_model", "")
     if not model:
         models = list_models()
@@ -40,3 +65,9 @@ def set_enabled(v):
 
 def set_model(m):
     db.set_setting("brain_model", m)
+
+def set_backend(b):
+    db.set_setting("brain_backend", b)
+
+def set_llama_path(p):
+    db.set_setting("llama_model_path", p)

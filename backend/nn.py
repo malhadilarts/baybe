@@ -119,25 +119,23 @@ class NNC:
     def predict(self, text):
         if not self.vocab:
             return "unknown", 0.0
-        # ensure vocab covers
-        for w in _tokenize(text):
-            if w not in self.vocab:
-                self.vocab[w] = len(self.vocab)
-        # rebuild model if vocab changed size
-        if self.model.fc1.in_features != len(self.vocab):
-            self._save_vocab()
-            self._build_model()
+        # Do NOT mutate vocab/model during inference: unknown words are ignored
+        # (OOV). Mutating here would resize the net and discard learned weights.
         with torch.no_grad():
             x = self._vectorize(text).unsqueeze(0)
             logits = self.model(x)
             probs = torch.softmax(logits, dim=1)
             idx = int(torch.argmax(probs, dim=1).item())
             conf = float(probs[0, idx].item())
+        # If no known words, force unknown
+        if not any(w in self.vocab for w in _tokenize(text)):
+            return "unknown", 0.0
         return INTENTS[idx], conf
 
-    def train(self, epochs=20, lr=0.01):
+    def train(self, examples=None, epochs=20, lr=0.01):
         import db
-        examples = db.examples_all()
+        if examples is None:
+            examples = db.examples_all()
         if not examples:
             return {"ok": False, "reason": "no examples"}
         # rebuild vocab

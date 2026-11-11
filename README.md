@@ -14,36 +14,30 @@ Open http://127.0.0.1:7890
 ## What works (v0.2)
 
 - **Stimme:** lokale Spracherkennung (faster-whisper) + Sprachausgabe (pyttsx3), ein-/ausschaltbar im Chat.
-- **Optionales Sprachgehirn:** Ollama als zusätzliches, abschaltbares Gehirn. Oberfläche zeigt klar, welcher Kern antwortet (Bay Be vs. Brain).
-- **Identität:** echtes Ed25519-Schlüsselpaar, lokal gespeichert, Export und Wiederherstellung.
-- **Schlafmodus:** Training mit Wiederholung älterer Beispiele, Backup des vorherigen Stands, Ergebnisprüfung, Dokumentation des Gelernten.
-- **Erinnerungen:** exportierbar/importierbar (JSON), einsehbar aber nicht direkt editierbar; Korrekturen als neue Einträge; Löschen und vollständiger Reset.
+- **Optionales Sprachgehirn:** Ollama als zusaetzliches, abschaltbares Gehirn (llama.cpp optional). Oberflaeche zeigt klar, welcher Kern antwortet (Bay Be vs. Brain).
+- **Identitaet:** echtes Ed25519-Schluesselpaar, lokal gespeichert, Export und Wiederherstellung.
+- **Schlafmodus:** Training mit Wiederholung aelterer Beispiele, Backup des vorherigen Stands, Ergebnispruefung, Dokumentation des Gelernten.
+- **Erinnerungen:** exportierbar/importierbar (JSON), einsehbar aber nicht direkt editierbar; Korrekturen als neue Eintraege; Loeschen und vollstaendiger Reset.
 - **Dokumente:** TXT, PDF (eigener Extractor), EPUB.
 
 ## What works (v0.1)
-1. App runs locally, fully offline (after first model download? No — pure PyTorch, no download).
-2. Teach: "Merke dir: Mein Hund heißt Luna." → asks "Wie heißt mein Hund?" → "Dein hund heißt Luna."
-3. Correction: "Korrektur: Mein Hund heißt Lupo." updates the fact.
+1. App runs locally, fully offline (pure PyTorch, no model download).
+2. Teach: "Merke dir: Mein Hund heisst Luna." -> asks "Wie heisst mein Hund?" -> "Dein Hund heisst Luna."
+3. Correction: "Korrektur: Mein Hund heisst Lupo." updates the fact.
 4. Persistence across restart.
 5. TXT/PDF/EPUB import + search (PDF/EPUB extraction is basic).
-6. Training: add examples → "Mit Beispielen trainieren" → weights change, accuracy shown.
-7. Unknown questions → "Das weiß ich noch nicht."
+6. Training: add examples -> "Mit Beispielen trainieren" -> weights change, accuracy shown.
+7. Unknown questions -> "Das weiss ich noch nicht."
 8. Guardian: blocks violence/self-harm/abuse instructions.
 
 ## Limits (honest)
 - Voice: STT via faster-whisper (tiny, CPU, ~few seconds latency); TTS via pyttsx3 (Windows SAPI5).
-- Brain: requires Ollama running locally; optional.
-- Identity: Ed25519 is real crypto, but the registry (AIBSN-style) is not implemented — local only.
+- Brain: requires Ollama running locally (optional). Direct llama.cpp requires llama-cpp-python (not installed by default).
+- Identity: Ed25519 is real crypto, but there is no registry (AIBSN-style) — local only. Private key stored unencrypted at rest (warn).
 - Sleep mode trains on all examples with replay; no selective example picking yet.
 - Virtual world, exchange market, learning workshop: future ideas.
-
-## Not yet implemented (honest)
-- Voice I/O (Echo)
-- Device sync (Twin)
-- Scanned PDFs (OCR)
-- Real asymmetric identity (Ed25519) — needs crypto lib
-- Advanced NLP (the net is a small intent classifier, not a language model)
+- The net is a small intent classifier, not a language model.
 
 ## Tech
-Python, PyTorch (CPU), FastAPI, SQLite, sentence-transformers-free (keyword search).
+Python, PyTorch (CPU), FastAPI, SQLite, cryptography (Ed25519), faster-whisper, pyttsx3.
 Dependencies: see requirements.txt.
