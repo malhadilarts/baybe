@@ -162,14 +162,33 @@ class NNC:
         return {"ok": True, "epochs": epochs, "final_loss": losses[-1], "accuracy": acc,
                 "examples": len(examples), "vocab_size": len(self.vocab)}
 
-    def info(self):
-        import db, os
-        trained = db.get_setting("trained_at", "")
+    # Held-out paraphrases (never trained on) for generalization testing
+    UNSEEN = {
+        "greeting": ["guten morgen", "servus", "na du", "gruess dich", "morgen zusammen"],
+        "teach": ["speicher das bitte", "notier dir das", "das ist wichtig", "behalte das", "schreib dir auf"],
+        "question": ["erklare mir das", "wann passiert das", "wo finde ich das", "wer bist du", "was kannst du"],
+        "unknown": ["asdfghjkl", "blubber quark", "xzyqwp", "random noise text", "12345 abc"],
+    }
+
+    def eval_unseen(self):
+        results = {}
+        correct = 0
+        total = 0
+        for label, phrases in self.UNSEEN.items():
+            hits = 0
+            for p in phrases:
+                pred, conf = self.predict(p)
+                ok = (pred == label)
+                if ok:
+                    hits += 1
+                    correct += 1
+                total += 1
+                results.setdefault(label, []).append({"text": p, "pred": pred, "conf": round(conf, 3), "ok": ok})
+        per_intent = {k: sum(1 for r in v if r["ok"]) / len(v) for k, v in results.items()}
         return {
-            "intents": INTENTS,
-            "intent_labels": INTENT_LABELS_DE,
-            "vocab_size": len(self.vocab),
-            "examples": len(db.examples_all()) if True else 0,
-            "trained_at": trained,
-            "model_exists": os.path.exists(MODEL_PATH),
+            "per_intent": per_intent,
+            "overall": correct / total if total else 0.0,
+            "correct": correct,
+            "total": total,
+            "details": results,
         }

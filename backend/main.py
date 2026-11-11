@@ -184,6 +184,50 @@ def train_run(epochs: int = 20):
 def train_info():
     return NET.info()
 
+@app.get("/api/eval")
+def eval_unseen():
+    return NET.eval_unseen()
+
+@app.post("/api/learn_test")
+def learn_test(epochs: int = 20):
+    before = NET.eval_unseen()
+    # backup
+    import shutil, os
+    from config import MODEL_PATH, VOCAB_PATH
+    backup_pt = str(MODEL_PATH) + ".evalbak"
+    backup_vocab = str(VOCAB_PATH) + ".evalbak"
+    if os.path.exists(MODEL_PATH):
+        shutil.copy2(MODEL_PATH, backup_pt)
+    if os.path.exists(VOCAB_PATH):
+        shutil.copy2(VOCAB_PATH, backup_vocab)
+    res = NET.train(epochs=epochs)
+    after = NET.eval_unseen()
+    # rollback if generalization got worse
+    rolled_back = False
+    if after["overall"] < before["overall"] and os.path.exists(backup_pt):
+        shutil.copy2(backup_pt, MODEL_PATH)
+        if os.path.exists(backup_vocab):
+            shutil.copy2(backup_vocab, VOCAB_PATH)
+        NET._load_vocab()
+        NET._build_model()
+        try:
+            import torch
+            NET.model.load_state_dict(torch.load(MODEL_PATH, map_location=__import__("nn").DEVICE))
+        except Exception:
+            pass
+        rolled_back = True
+    insight = ("Learning test: unseen accuracy %.3f -> %.3f (train_acc=%.3f). %s" % (
+        before["overall"], after["overall"], res.get("accuracy", 0),
+        "ROLLED BACK" if rolled_back else "kept"))
+    db.fact_add(insight, source="eval")
+    return {
+        "before": before,
+        "after": after,
+        "train_result": res,
+        "rolled_back": rolled_back,
+        "insight": insight,
+    }
+
 @app.get("/api/guardian/check")
 def gcheck(text: str):
     ok, reason = guardian.check(text)
