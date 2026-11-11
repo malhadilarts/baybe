@@ -48,6 +48,11 @@ def create(name):
         "reg_code": None,
     }
     _save(d)
+    try:
+        import os
+        os.chmod(IDENTITY_PATH, 0o600)
+    except Exception:
+        pass
     # also mirror name in db for convenience
     c = db.conn()
     c.execute("INSERT OR REPLACE INTO identity(id,name,pubkey,privkey,created_at,registered) VALUES (1,?,?,?,?,0)",
@@ -113,4 +118,9 @@ def register(code):
     d["registered"] = True
     d["reg_code"] = code
     _save(d)
+    try:
+        import os
+        os.chmod(IDENTITY_PATH, 0o600)
+    except Exception:
+        pass
     return True

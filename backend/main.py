@@ -171,8 +171,8 @@ def ex_add(req: ExampleReq):
     if req.label not in nn.INTENTS:
         raise HTTPException(400, "unknown label")
     db.example_add(req.text, req.label)
-    NET._rebuild_vocab()
-    NET._build_model()
+    # Do not rebuild the model here: that would discard learned weights.
+    # Vocab/model are rebuilt together during training.
     return {"ok": True}
 
 @app.post("/api/training/run")

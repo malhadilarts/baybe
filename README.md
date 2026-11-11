@@ -41,3 +41,8 @@ Open http://127.0.0.1:7890
 ## Tech
 Python, PyTorch (CPU), FastAPI, SQLite, cryptography (Ed25519), faster-whisper, pyttsx3.
 Dependencies: see requirements.txt.
+
+## First-run notes
+- faster-whisper downloads the "tiny" model (~75 MB) on first STT use.
+- pyttsx3 uses the OS text-to-speech (Windows SAPI5).
+- Ollama is optional for the brain; Bay Be works fully without it.
